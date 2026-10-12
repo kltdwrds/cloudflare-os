@@ -256,6 +256,13 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     this.#syncDirectory();
   }
 
+  /** qyvr patch 1: true once per platform assertion id, so a replayed `jti` is refused. */
+  async claimAssertion(jti: string, exp: number): Promise<boolean> {
+    const [kv, key] = [this.ctx.storage.kv, `qyvr-assertion:${jti}`];
+    for (const [k, e] of kv.list<number>({ prefix: "qyvr-assertion:" })) if (e * 1000 < Date.now()) kv.delete(k);
+    return kv.get(key) === undefined && (kv.put(key, exp), true);
+  }
+
   /**
    * Returns true when this login created the account on first use. When the account doesn't yet
    * exist and `allowCreate` is false (deployment signups are closed), refuses rather than creating —

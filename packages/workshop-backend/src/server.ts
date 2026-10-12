@@ -27,7 +27,7 @@ import { ExternalMessageGateway } from "./external-message-gateway";
 import { RpcStub as NativeRpcStub } from "cloudflare:workers";
 import { recordAnalytics } from "./analytics";
 import { handleClientErrorRequest } from "./client-errors.js";
-import { verifyCfAccessJwt } from "./access.js";
+import { forAgent, verifyCfAccessJwt, verifyPlatformAssertion } from "./access.js";
 import { resolveUiFeatureFlags } from "./feature-flags";
 import { serveSiteLogo, SITE_LOGO_PATH } from "./site-logo.js";
 import { createWorkshopLogger } from "./observability";
@@ -693,7 +693,7 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
 
   constructor(private ctx: ExecutionContext, private env: Env,
       private abortSession: (reason: Error) => void,
-      private accessSession?: { payload: JWTPayload; jwt: string }) {
+      private accessSession?: { payload: JWTPayload; jwt: string; agent?: boolean }) {
     super();
     this.users = this.ctx.exports.UserDurableObject;
   }
@@ -786,8 +786,9 @@ class PublicApiImpl extends RpcTarget implements PublicApi {
       user_id: userId.toString(),
       source: "cf_access",
     });
-    return new AuthenticatedApiImpl(this.ctx, this.env, userId, this.abortSession,
+    const api = new AuthenticatedApiImpl(this.ctx, this.env, userId, this.abortSession,
         { jwt: this.accessSession.jwt, expiresAt: (this.accessSession.payload.exp ?? 0) * 1000 });
+    return this.accessSession.agent ? forAgent(api) : api;
   }
 
   async login(username: string, passwordHash: Uint8Array): Promise<string | null> {
@@ -932,14 +933,19 @@ export default {
             }));
       }
 
-      let accessSession: { payload: JWTPayload; jwt: string } | undefined;
+      let accessSession: { payload: JWTPayload; jwt: string; agent?: boolean } | undefined;
 
       if (env.CF_ACCESS_AUD) {
         if (req.headers.get("Origin") !== url.origin) {
           return new Response("Cross-origin API access not allowed.", { status: 403 });
         }
 
-        const payload = await verifyCfAccessJwt(req, env);
+        const assertion = req.headers.has("x-qyvr-assertion") ? await verifyPlatformAssertion(req, env) : undefined;
+        if (assertion === null) return new Response("Invalid platform assertion.", { status: 403 });
+        const users = ctx.exports.UserDurableObject;
+        const replayed = assertion && !await users.get(users.idFromName(assertion.sub)).claimAssertion(assertion.jti, assertion.exp);
+        if (replayed) return new Response("Replayed platform assertion.", { status: 403 });
+        const payload = assertion ? { ...assertion, email: assertion.sub } : await verifyCfAccessJwt(req, env);
         if (!payload) return new Response("Invalid CF access JWT.", { status: 403 });
 
         if (!payload.email) {
@@ -948,7 +954,8 @@ export default {
 
         accessSession = {
           payload,
-          jwt: req.headers.get("cf-access-jwt-assertion")!,
+          jwt: req.headers.get("cf-access-jwt-assertion") ?? "",
+          agent: !!assertion,
         };
       }
 
