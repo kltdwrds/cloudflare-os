@@ -10,6 +10,7 @@ import {
   BlueprintBindingCard,
   loadBindingCardData,
 } from './components/BlueprintBindingCard'
+import { BASE, withBase } from './base'
 
 const BLUEPRINT_SCREENSHOT_WIDTH = 1280
 const BLUEPRINT_SCREENSHOT_HEIGHT = 720
@@ -273,7 +274,7 @@ export default function BlueprintModal({ open, onClose, overseer, gadget, metada
   }
 
   const savedScreenshotUrl = formMode === 'edit' && editingBlueprint?.screenshotUrl && !clearScreenshot
-    ? editingBlueprint.screenshotUrl
+    ? withBase(editingBlueprint.screenshotUrl)
     : null
   const screenshotPreviewUrl = newScreenshotUrl ?? savedScreenshotUrl
 
@@ -526,7 +527,7 @@ export default function BlueprintModal({ open, onClose, overseer, gadget, metada
                         }
                       }}
                       onCopyLink={async () => {
-                        const url = `${window.location.origin}/blueprint/${bp.id}`
+                        const url = `${window.location.origin}${BASE}/blueprint/${bp.id}`
                         return copyToClipboard(url)
                       }}
                       isConfirmingDelete={confirmingDeleteId === bp.id}

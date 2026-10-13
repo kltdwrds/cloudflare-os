@@ -14,6 +14,7 @@ import FrontendErrorBoundary from './FrontendErrorBoundary'
 import { installWorkshopErrorReporting, reportIssue } from './errorReporting'
 import { applySiteFavicon, cacheBustSiteLogoUrl } from './siteLogoUtils'
 import { getBackendHost } from './connectHandoff';
+import { BASE, withBase } from './base';
 
 // ---------------------------------------------------------------------------
 // Dev auto-login: if VITE_DEV_AUTO_LOGIN=true, automatically create/login
@@ -86,7 +87,7 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
 function startConnection(): RpcStub<PublicApi> {
   lastConnectTime = Date.now();
   const apiHost = getBackendHost();
-  const wsUrl = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + apiHost + '/api';
+  const wsUrl = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + apiHost + BASE + '/api';
   const stub = newWebSocketRpcSession<PublicApi>(wsUrl);
   stub.onRpcBroken(handleBroken);
   return stub;
@@ -224,7 +225,7 @@ function AppWithConnection() {
         if (!cancelled) {
           setServerConfig(cfg.siteLogo ? {
             ...cfg,
-            siteLogo: { url: cacheBustSiteLogoUrl(cfg.siteLogo.url) },
+            siteLogo: { url: cacheBustSiteLogoUrl(withBase(cfg.siteLogo.url)) },
           } : cfg);
         }
       })
