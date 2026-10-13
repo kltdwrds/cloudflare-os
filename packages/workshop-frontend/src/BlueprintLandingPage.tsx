@@ -23,6 +23,7 @@ import { useDocumentTitle } from './useDocumentTitle'
 import { AccountsSubscriberAdapter } from './accountsSubscriber'
 import { useDialogSelectPortalContainer } from './useDialogSelectPortalContainer'
 import { openConnectWindow } from './connectHandoff'
+import { withBase } from './base'
 
 interface Props {
   rpcStub: RpcStub<PublicApi>
@@ -1130,7 +1131,7 @@ function BlueprintScreenshotHero({
             aria-label={`Open larger screenshot of ${title}`}
           >
             <img
-              src={screenshotUrl}
+              src={withBase(screenshotUrl)}
               alt={`Screenshot of ${title}`}
               className="aspect-[16/9] w-full object-cover"
             />
@@ -1158,7 +1159,7 @@ function BlueprintScreenshotHero({
         />
         <div className="p-3 sm:p-4">
           <img
-            src={screenshotUrl}
+            src={withBase(screenshotUrl)}
             alt={`Screenshot of ${title}`}
             className="max-h-[calc(var(--app-height)-96px)] w-full rounded-xl object-contain"
           />

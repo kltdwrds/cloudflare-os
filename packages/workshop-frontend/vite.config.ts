@@ -70,7 +70,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
   const backendHost = env.VITE_BACKEND_HOST?.trim() || 'localhost:8787'
   const frontendErrorReporting = env.VITE_FRONTEND_ERROR_REPORTING === 'true'
+  // Path prefix the build is served under (qyvr patch 2); `src/base.ts` reads it back as BASE_URL.
+  const base = env.VITE_QYVR_BASE?.trim() || '/'
   return {
+    base,
     // Spread, not a literal `run: {...}`: `run` is Vite+'s field and vite's own `defineConfig` has
     // no such property, but the excess-property check doesn't reach spreads.
     ...runConfig,
