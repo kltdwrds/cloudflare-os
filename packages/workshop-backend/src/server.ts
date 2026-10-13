@@ -81,9 +81,12 @@ type Env = Cloudflare.Env & {
 
 // =======================================================================================
 
+// qyvr patch 3: what the API uses of its context, so the person's object can pass its own state.
+export type ApiContext = Pick<ExecutionContext, "exports" | "waitUntil">;
+
 @validateRpc()
 class AuthenticatedApiImpl extends RpcTarget implements AuthenticatedApi {
-  constructor(private ctx: ExecutionContext, private env: Env,
+  constructor(private ctx: ApiContext, private env: Env,
       userId: DurableObjectId,
       private abortSession: (reason: Error) => void,
       private accessSession?: { jwt: string; expiresAt: number }) {
@@ -688,10 +691,10 @@ class LoginAttemptImpl extends RpcTarget implements LoginAttempt {
 }
 
 @validateRpc()
-class PublicApiImpl extends RpcTarget implements PublicApi {
+export class PublicApiImpl extends RpcTarget implements PublicApi {
   users: DurableObjectNamespace<UserDurableObject>;
 
-  constructor(private ctx: ExecutionContext, private env: Env,
+  constructor(private ctx: ApiContext, private env: Env,
       private abortSession: (reason: Error) => void,
       private accessSession?: { payload: JWTPayload; jwt: string; agent?: boolean }) {
     super();
@@ -959,6 +962,11 @@ export default {
         };
       }
 
+      // qyvr patch 3: an authenticated WebSocket session is held by the person's object (user.ts).
+      if (accessSession && req.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+        const headers = { Upgrade: "websocket", "x-qyvr-api-session": JSON.stringify(accessSession) };
+        return ctx.exports.UserDurableObject.getByName(accessSession.payload.email as string).fetch(new Request(req.url, { headers }));
+      }
       // HACK: Implement `abortSession` callback by closing the websocket.
       // TODO: When ctx.abort() becomes non-experimental, consider using that instead.
       let abortController = new AbortController();

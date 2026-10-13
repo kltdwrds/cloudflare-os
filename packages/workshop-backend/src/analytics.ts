@@ -129,7 +129,7 @@ export type ProductAnalyticsInput =
   | ProductAnalyticsGadgetInput;
 
 export function recordAnalytics(
-    ctx: ExecutionContext | DurableObjectState,
+    ctx: Pick<ExecutionContext, "waitUntil">,
     env: Cloudflare.Env,
     event: ProductAnalyticsInput): void {
   sendProductAnalytics(ctx, env, event);
@@ -137,7 +137,7 @@ export function recordAnalytics(
 }
 
 function sendProductAnalytics(
-    ctx: ExecutionContext | DurableObjectState,
+    ctx: Pick<ExecutionContext, "waitUntil">,
     env: Cloudflare.Env,
     event: ProductAnalyticsInput): void {
   try {

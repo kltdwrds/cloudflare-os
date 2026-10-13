@@ -1,4 +1,6 @@
 import { RpcStub } from "capnweb";
+import { type ApiContext, PublicApiImpl } from "./server";
+import { HeldSockets } from "./held-socket";
 import { GadgetMetadataWithTimestamps, AiChatAuthorInfo, AiModelConfig, RedactedAiModelConfig, ModelKind, modelKind, CollaboratorRole, ConnectedAccountsSubscriber, ConnectedAccountsFilter, GatekeeperVendorFilter, GadgetMetadata, BlueprintMetadata, BlueprintLibrarySummary, BlueprintSource, BlueprintUserSummary, BLUEPRINT_SCREENSHOT_R2_PREFIX, GatekeeperVendorInfo, OutputSummary, ListOutputsResult, AUTH_ERROR_CODES, createAuthError, ConnectFlowStart, validateCommitEmail, NotificationSubscriber, UserNotification, type DeviceSessionHandoffStart } from '@gadgets/workshop-shared/api';
 import { ActionDescription, Gatekeeper, GatekeeperUser, GatekeeperUserVerifier, GatekeeperVendor, AccountDescription, VendorDescription, GatekeeperConnectCallback, ConnectHandoff, SupportedResource, ResourceConfiguratorFrame, AppUiContext, GatekeeperUiFrame } from "@gadgets/workshop-shared/gatekeeper";
 import { shouldAutoProvisionAccount, ambientGatekeeperMode } from "./provisioning-policy.js";
@@ -206,6 +208,20 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     this.vendors = buildGatekeeperVendorMap(env);
   }
 
+  // qyvr patch 3: server.ts hands an authenticated `/api` socket here, held by the hibernatable API.
+  #apiSockets = new HeldSockets();
+  #apiContext: ApiContext = { exports: this.ctx.exports, waitUntil: (p) => this.ctx.waitUntil(p) };
+  async fetch(req: Request): Promise<Response> {
+    const session = req.headers.get("x-qyvr-api-session");
+    if (!session) return new Response("Not Found", { status: 404 });
+    const [client, server] = Object.values(new WebSocketPair());
+    this.ctx.acceptWebSocket(server);
+    this.#apiSockets.open(server, (abort) => new PublicApiImpl(this.#apiContext, this.env, abort, JSON.parse(session)));
+    return new Response(null, { status: 101, webSocket: client });
+  }
+  webSocketMessage(ws: WebSocket, m: string | ArrayBuffer): void { this.#apiSockets.message(ws, m); }
+  webSocketClose(ws: WebSocket, code: number, reason: string): void { this.#apiSockets.close(ws, code, reason); }
+  webSocketError(ws: WebSocket, error: unknown): void { this.#apiSockets.close(ws, 1011, String(error)); }
   // Mirrors the profile into the deployment-wide user directory. Best-effort
   // and does not block the caller. The `syncUser` call opens this DO's input
   // gate, so a rename can start a second sync while one is in flight, and the
