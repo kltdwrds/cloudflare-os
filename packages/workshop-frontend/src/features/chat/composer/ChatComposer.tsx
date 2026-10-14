@@ -1,5 +1,6 @@
 import {
   useState,
+  useContext,
   useEffect,
   useRef,
   useMemo,
@@ -38,6 +39,7 @@ import ComposerFormatMenuItems from "../../../components/format/ComposerFormatMe
 import { WorkshopIconButton } from "../../../components/WorkshopControls";
 import { handlePickerKeyDown } from "../../../pickerNavigation";
 import { useAuthenticatedApi } from "../../../AuthContext";
+import { RpcContext } from "../../../RpcContext";
 import { useVendorBranding } from "../../../useVendorBranding";
 import { useSlashCommandPicker } from "./slash-commands/SlashCommandPicker";
 import { isImeComposing } from "../../../keyboardEvent";
@@ -204,6 +206,36 @@ export const ChatComposer = ({
   // leaving the chat dismisses it.
   const [sendHiccup, setSendHiccup] = useState<{ chatKey?: number | null } | null>(null);
   useEffect(() => setSendHiccup(null), [chatKey]);
+  // qyvr patch 4 (QYVR-152): a send first proves its session with one ping. When the session was
+  // dropped while idle, it waits (bounded) for the overseer the new session opens and goes once.
+  const rpc = useContext(RpcContext);
+  const rpcRef = useRef(rpc);
+  rpcRef.current = rpc;
+  const latestRef = useRef({ onSend, getOverseer });
+  latestRef.current = { onSend, getOverseer };
+  const overseerSessionRef = useRef(rpc?.stub);
+  const overseerRenewedRef = useRef(() => {});
+  useEffect(() => { overseerSessionRef.current = rpcRef.current?.stub; overseerRenewedRef.current(); }, [getOverseer]);
+  const proveSession = async () => {
+    const source = latestRef.current.getOverseer;
+    const notSent = new Error("WebSocket connection failed.");  // transient: the hiccup line
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = (ms: number) => new Promise<never>((_, reject) => { timer = setTimeout(reject, ms, notSent); });
+    let dropped = false;
+    try {
+      if (rpcRef.current && !rpcRef.current.connectionLost) {
+        await Promise.race([rpcRef.current.stub.ping().catch(() => { dropped = true; }), deadline(10000)]);
+        clearTimeout(timer);
+      }
+      if ((dropped || rpcRef.current?.connectionLost || overseerSessionRef.current !== rpcRef.current?.stub) &&
+          latestRef.current.getOverseer === source) {
+        await Promise.race([new Promise<void>((resolve) => { overseerRenewedRef.current = resolve; }), deadline(30000)]);
+      }
+    } finally {
+      clearTimeout(timer);
+      overseerRenewedRef.current = () => {};
+    }
+  };
   // The caret the slash command picker parses at. Deliberately updated only when it moves to a
   // different command token (see `syncPickerCaret`): the mirror owns the caret the user sees,
   // so ordinary caret movement doesn't have to re-render the composer.
@@ -488,7 +520,8 @@ export const ChatComposer = ({
       const { message, capsules: capsuleSpecifiers, formats: formatRefs } =
         submissionResult.submission;
 
-      await onSend(message, selectedModel?.id ?? null,
+      await proveSession();
+      await latestRef.current.onSend(message, selectedModel?.id ?? null,
           capsuleSpecifiers,
           readyAttachments.length ? readyAttachments : undefined,
           formatRefs);
@@ -705,6 +738,9 @@ export const ChatComposer = ({
               : "Connection hiccup — your message may not have been sent. Try again; if it keeps failing, reload the page."}
           </div>
         )}
+        {isSending && rpc?.connectionLost && (
+          <div className="px-4 pt-2 text-xs text-kumo-subtle">Reconnecting — your message sends once the connection is back.</div>
+        )}
         <ComposerAttachmentTray
           attachments={pendingAttachments}
           disabled={isSending}
@@ -868,7 +904,7 @@ export const ChatComposer = ({
                 // Enter sends message (unless Shift is held)
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (!isAgentActive && !isBlocked) submitMessage();
+                  if (canSend) submitMessage();
                   return;
                 }
                 if (activeUrl) {

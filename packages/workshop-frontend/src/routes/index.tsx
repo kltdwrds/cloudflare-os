@@ -107,7 +107,7 @@ export function HomePageContent({ prompt }: HomeSearch) {
       provisionalOverseerRef.current?.stub[Symbol.dispose]();
       provisionalOverseerRef.current = null;
     };
-  }, []);
+  }, [authenticatedApi]);  // qyvr patch 4: a reconnect drops it with its session
 
   const handleSend = useCallback(
     async (
